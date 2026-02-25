@@ -22,6 +22,17 @@ export const API = `${BACKEND_URL}/api`;
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+
+  const sidebarProps = {
+    activeTab,
+    setActiveTab,
+    isCollapsed: isSidebarCollapsed,
+    onMouseEnter: () => setIsSidebarCollapsed(false),
+    onMouseLeave: () => setIsSidebarCollapsed(true)
+  };
+
+  const contentClass = `flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'ml-20' : 'ml-64'}`;
 
   return (
     <div className="App min-h-screen bg-gray-50">
@@ -36,8 +47,8 @@ function App() {
           <Route path="/" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <Navigate to="/dashboard" replace />
                 </div>
               </div>
@@ -47,8 +58,8 @@ function App() {
           <Route path="/dashboard" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <Dashboard />
                 </div>
               </div>
@@ -58,8 +69,8 @@ function App() {
           <Route path="/classes" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <ClassManagement />
                 </div>
               </div>
@@ -69,8 +80,8 @@ function App() {
           <Route path="/students" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <StudentManagement />
                 </div>
               </div>
@@ -80,8 +91,8 @@ function App() {
           <Route path="/syllabus" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <SyllabusUpload />
                 </div>
               </div>
@@ -91,8 +102,8 @@ function App() {
           <Route path="/subjects" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <SubjectManagement />
                 </div>
               </div>
@@ -102,8 +113,8 @@ function App() {
           <Route path="/submit" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <AnswerSubmission />
                 </div>
               </div>
@@ -113,8 +124,8 @@ function App() {
           <Route path="/reviews" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <Reviews />
                 </div>
               </div>
@@ -124,8 +135,8 @@ function App() {
           <Route path="/analytics" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <Analytics />
                 </div>
               </div>
@@ -135,8 +146,8 @@ function App() {
           <Route path="/monitoring" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <ModelMonitoring />
                 </div>
               </div>
@@ -146,8 +157,8 @@ function App() {
           <Route path="/database" element={
             <ProtectedRoute>
               <div className="flex">
-                <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-                <div className="flex-1 ml-64">
+                <Sidebar {...sidebarProps} />
+                <div className={contentClass}>
                   <DatabaseExplorer />
                 </div>
               </div>

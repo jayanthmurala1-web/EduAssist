@@ -4,7 +4,7 @@ import { BookOpen, Upload, FileText, BarChart3, Activity, Home, Users, Graduatio
 import axios from 'axios';
 import { API } from '../App';
 
-const Sidebar = () => {
+const Sidebar = ({ isCollapsed, onMouseEnter, onMouseLeave }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -42,12 +42,17 @@ const Sidebar = () => {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   return (
-    <div className="fixed left-0 top-0 h-screen w-64 bg-gradient-to-b from-blue-600 to-blue-800 text-white shadow-2xl flex flex-col" data-testid="sidebar">
-      <div className="p-6 border-b border-blue-500">
-        <h1 className="text-2xl font-bold" data-testid="app-title">EduAssist</h1>
-        <p className="text-xs text-blue-200 mt-1">AI Answer Evaluation</p>
-        {user.name && (
-          <div className="mt-3 pt-3 border-t border-blue-500">
+    <div
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={`fixed left-0 top-0 h-screen bg-gradient-to-b from-blue-600 to-blue-800 text-white shadow-2xl flex flex-col transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}
+      data-testid="sidebar"
+    >
+      <div className={`p-6 border-b border-blue-500 overflow-hidden ${isCollapsed ? 'px-2 flex flex-col items-center' : ''}`}>
+        <h1 className="text-2xl font-bold whitespace-nowrap" data-testid="app-title">{isCollapsed ? 'EA' : 'EduAssist'}</h1>
+        {!isCollapsed && <p className="text-xs text-blue-200 mt-1 whitespace-nowrap">AI Answer Evaluation</p>}
+        {user.name && !isCollapsed && (
+          <div className="mt-3 pt-3 border-t border-blue-500 w-full">
             <p className="text-sm font-semibold truncate">{user.name}</p>
             <p className="text-xs text-blue-200 truncate">{user.email}</p>
           </div>
@@ -64,13 +69,13 @@ const Sidebar = () => {
               key={item.id}
               onClick={() => navigate(item.path)}
               data-testid={`nav-${item.id}`}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 transition-all ${isActive
+              className={`w-full flex items-center px-4 py-3 rounded-lg mb-2 transition-all ${isActive
                 ? 'bg-white text-blue-600 shadow-lg'
                 : 'text-blue-100 hover:bg-blue-700'
-                }`}
+                } ${isCollapsed ? 'justify-center' : 'space-x-3'}`}
             >
-              <Icon size={20} />
-              <span className="font-medium text-sm">{item.label}</span>
+              <Icon size={20} className="shrink-0" />
+              {!isCollapsed && <span className="font-medium text-sm whitespace-nowrap">{item.label}</span>}
             </button>
           );
         })}
@@ -79,11 +84,11 @@ const Sidebar = () => {
       <div className="p-4 border-t border-blue-500">
         <button
           onClick={handleLogout}
-          className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-blue-100 hover:bg-blue-700 transition-all"
+          className={`w-full flex items-center rounded-lg text-blue-100 hover:bg-blue-700 transition-all ${isCollapsed ? 'justify-center p-3' : 'px-4 py-3 space-x-3'}`}
           data-testid="logout-button"
         >
-          <LogOut size={20} />
-          <span className="font-medium">Logout</span>
+          <LogOut size={20} className="shrink-0" />
+          {!isCollapsed && <span className="font-medium">Logout</span>}
         </button>
       </div>
     </div>
