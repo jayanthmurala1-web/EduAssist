@@ -98,6 +98,7 @@ class AnswerScript(BaseModel):
     topic: Optional[str] = None
     image_data: Optional[str] = None
     ocr_text: str
+    exam_date: Optional[str] = None # Date of the exam
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Evaluation(BaseModel):
@@ -110,7 +111,9 @@ class Evaluation(BaseModel):
     topic: Optional[str] = None
     question: Optional[str] = None  # The specific question being evaluated
     class_id: Optional[str] = None  # Link to class
+    class_name: Optional[str] = None # Name of class
     section_id: Optional[str] = None  # Link to section
+    section_name: Optional[str] = None # Name of section
     score: float
     max_score: float = 100.0
     explanation: str
@@ -121,6 +124,7 @@ class Evaluation(BaseModel):
     feedback: Optional[str] = None
     feedback_score: Optional[float] = None
     is_correct: Optional[bool] = None
+    exam_date: Optional[str] = None # Date of the exam
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -666,6 +670,9 @@ async def evaluate_answer_script(answer_data: dict):
         topic = answer_data.get('topic')
         ocr_text = answer_data.get('ocr_text')
         image_base64 = answer_data.get('image_base64')
+        exam_date = answer_data.get('exam_date')
+        class_name = answer_data.get('class_name')
+        section_name = answer_data.get('section_name')
         
         # Find relevant syllabus
         query = {"subject": subject}
@@ -686,7 +693,8 @@ async def evaluate_answer_script(answer_data: dict):
             subject=subject,
             topic=topic,
             image_data=image_base64[:100] if image_base64 else None,
-            ocr_text=ocr_text
+            ocr_text=ocr_text,
+            exam_date=exam_date
         )
         
         answer_doc = answer_script.model_dump()
@@ -718,6 +726,9 @@ async def evaluate_answer_script(answer_data: dict):
                 question=res.get('question'),
                 score=res['score'],
                 explanation=res['explanation'],
+                exam_date=exam_date,
+                class_name=class_name,
+                section_name=section_name,
                 missing_keywords=res.get('missing_keywords', []),
                 matched_concepts=res.get('matched_concepts', []),
                 similarity_score=rag_result['similarity_score'],

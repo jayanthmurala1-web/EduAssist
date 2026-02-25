@@ -20,11 +20,14 @@ const AnswerSubmission = () => {
 
   const [formData, setFormData] = useState({
     class_id: '',
+    class_name: '',
     section_id: '',
+    section_name: '',
     student_id: '',
     student_name: '',
     subject: '',
     topic: '',
+    exam_date: new Date().toISOString().split('T')[0], // Default to today
   });
 
   const [imageFile, setImageFile] = useState(null);
@@ -113,10 +116,13 @@ const AnswerSubmission = () => {
 
   const handleClassChange = (e) => {
     const classId = e.target.value;
+    const selectedClass = classes.find(c => c.id === classId);
     setFormData(prev => ({
       ...prev,
       class_id: classId,
+      class_name: selectedClass ? selectedClass.name : '',
       section_id: '',
+      section_name: '',
       student_id: '',
       student_name: ''
     }));
@@ -127,9 +133,11 @@ const AnswerSubmission = () => {
 
   const handleSectionChange = (e) => {
     const sectionId = e.target.value;
+    const selectedSection = sections.find(s => s.id === sectionId);
     setFormData(prev => ({
       ...prev,
       section_id: sectionId,
+      section_name: selectedSection ? selectedSection.name : '',
       student_id: '',
       student_name: ''
     }));
@@ -222,12 +230,15 @@ const AnswerSubmission = () => {
       const response = await axios.post(`${API}/answer/evaluate`, {
         student_id: formData.student_id || null,
         class_id: formData.class_id || null,
+        class_name: formData.class_name || null,
         section_id: formData.section_id || null,
+        section_name: formData.section_name || null,
         student_name: formData.student_name,
         subject: formData.subject,
         topic: formData.topic || null,
         ocr_text: ocrText,
         image_base64: imageBase64,
+        exam_date: formData.exam_date,
       }, {
         headers: getAuthHeaders(),
         withCredentials: true
@@ -477,6 +488,21 @@ const AnswerSubmission = () => {
                 <option value="">Select Student (Optional)</option>
                 {students.map(s => <option key={s.id} value={s.id}>{s.roll_number} - {s.name}</option>)}
               </select>
+            </div>
+
+            {/* Exam Date */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Date of Exam *
+              </label>
+              <input
+                type="date"
+                name="exam_date"
+                value={formData.exam_date}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+              />
             </div>
 
             <div>

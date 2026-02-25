@@ -104,99 +104,119 @@ const Reviews = () => {
           <p className="text-gray-500 text-lg">No evaluations to review yet</p>
         </div>
       ) : (
-        <div className="space-y-6" data-testid="evaluations-list">
-          {evaluations.map((evaluation) => (
-            <div key={evaluation.id} className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow" data-testid={`evaluation-card-${evaluation.id}`}>
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-xl font-bold text-gray-800" data-testid="student-name">{evaluation.student_name}</h3>
-                  <p className="text-gray-600">
-                    {evaluation.subject} {evaluation.topic && `- ${evaluation.topic}`}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <div className="text-3xl font-bold text-blue-600" data-testid="evaluation-score">
-                    {evaluation.score}/100
-                  </div>
-                  {evaluation.feedback && (
-                    <div className="flex items-center text-green-600 mt-2" data-testid="feedback-indicator">
-                      <CheckCircle size={16} className="mr-1" />
-                      <span className="text-sm">Reviewed</span>
+        <div className="space-y-12">
+          {Object.entries(
+            evaluations.reduce((acc, evalItem) => {
+              const subject = evalItem.subject || 'Uncategorized';
+              const classSection = evalItem.class_name && evalItem.section_name
+                ? `${evalItem.class_name} - ${evalItem.section_name}`
+                : 'Individual Submissions';
+
+              if (!acc[subject]) acc[subject] = {};
+              if (!acc[subject][classSection]) acc[subject][classSection] = [];
+              acc[subject][classSection].push(evalItem);
+              return acc;
+            }, {})
+          ).map(([subject, sections]) => (
+            <div key={subject} className="space-y-8">
+              <div className="flex items-center gap-4">
+                <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tight">{subject}</h2>
+                <div className="h-0.5 flex-1 bg-gradient-to-r from-gray-200 to-transparent"></div>
+              </div>
+
+              {Object.entries(sections).map(([sectionName, sectionEvals]) => (
+                <div key={sectionName} className="bg-gray-50/50 rounded-2xl p-6 border border-gray-100 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-lg">
+                        <CheckCircle size={20} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-800">{sectionName}</h3>
+                        <p className="text-xs text-gray-500 font-medium">{sectionEvals.length} Evaluation{sectionEvals.length !== 1 ? 's' : ''}</p>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
 
-              {evaluation.question && (
-                <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-500 rounded shadow-sm">
-                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Question Evaluated:</p>
-                  <p className="text-gray-900 font-bold leading-tight">{evaluation.question}</p>
-                </div>
-              )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {sectionEvals.map((evaluation) => (
+                      <div key={evaluation.id} className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-all border border-gray-50 flex flex-col" data-testid={`evaluation-card-${evaluation.id}`}>
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="text-lg font-bold text-gray-900" data-testid="student-name">{evaluation.student_name}</h3>
+                              {evaluation.exam_date && (
+                                <span className="bg-blue-50 text-blue-600 text-[10px] font-black uppercase px-2 py-0.5 rounded-full border border-blue-100">
+                                  {new Date(evaluation.exam_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 font-medium">
+                              Topic: {evaluation.topic || 'General'}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-2xl font-black text-blue-600 leading-none" data-testid="evaluation-score">
+                              {evaluation.score}<span className="text-xs font-normal">/100</span>
+                            </div>
+                            {evaluation.feedback && (
+                              <div className="flex items-center text-green-600 mt-2 justify-end" data-testid="feedback-indicator">
+                                <CheckCircle size={12} className="mr-1" />
+                                <span className="text-[10px] font-bold uppercase tracking-wider">Reviewed</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
 
-              <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-100 shadow-inner">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">AI Feedback & Explanation:</p>
-                <p className="text-gray-800 leading-relaxed text-sm" data-testid="evaluation-explanation">{evaluation.explanation}</p>
-              </div>
+                        {evaluation.question && (
+                          <div className="mb-4 p-3 bg-blue-50/50 border-l-4 border-blue-400 rounded-lg">
+                            <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Question:</p>
+                            <p className="text-gray-800 text-xs font-bold leading-tight line-clamp-2">{evaluation.question}</p>
+                          </div>
+                        )}
 
-              {evaluation.matched_concepts && evaluation.matched_concepts.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-2">Matched Concepts:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {evaluation.matched_concepts.map((concept, idx) => (
-                      <span key={idx} className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
-                        {concept}
-                      </span>
+                        <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-100 flex-1">
+                          <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">AI Explanation:</p>
+                          <p className="text-gray-700 text-xs leading-relaxed" data-testid="evaluation-explanation">{evaluation.explanation}</p>
+                        </div>
+
+                        {evaluation.feedback && (
+                          <div className="mb-6 p-4 bg-green-50 rounded-xl border border-green-100" data-testid="faculty-feedback">
+                            <p className="text-[9px] font-black text-green-600 uppercase tracking-widest mb-2">Faculty Correction:</p>
+                            <p className="text-gray-800 text-xs leading-relaxed">{evaluation.feedback}</p>
+                            {evaluation.feedback_score !== undefined && (
+                              <p className="text-xs font-black text-green-700 mt-2 pt-2 border-t border-green-100/50">
+                                Verified Score: {evaluation.feedback_score}/100
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {!evaluation.feedback && (
+                          <div className="flex gap-2 mt-auto">
+                            <button
+                              onClick={() => openFeedbackModal(evaluation, true)}
+                              data-testid="correct-button"
+                              className="flex-1 bg-green-600 text-white py-2 px-3 rounded-lg text-xs font-bold hover:bg-green-700 transition-all flex items-center justify-center shadow-lg shadow-green-200 active:scale-95"
+                            >
+                              <ThumbsUp className="mr-1.5" size={14} />
+                              Agree
+                            </button>
+                            <button
+                              onClick={() => openFeedbackModal(evaluation, false)}
+                              data-testid="incorrect-button"
+                              className="flex-1 bg-white text-red-600 border-2 border-red-50 py-2 px-3 rounded-lg text-xs font-bold hover:bg-red-50 hover:border-red-100 transition-all flex items-center justify-center active:scale-95"
+                            >
+                              <ThumbsDown className="mr-1.5" size={14} />
+                              Correct AI
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
-              )}
-
-              {evaluation.missing_keywords && evaluation.missing_keywords.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-2">Missing Keywords:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {evaluation.missing_keywords.map((keyword, idx) => (
-                      <span key={idx} className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm">
-                        {keyword}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {evaluation.feedback && (
-                <div className="mb-4 p-4 bg-blue-50 rounded-lg" data-testid="faculty-feedback">
-                  <p className="text-sm font-semibold text-blue-700 mb-2">Faculty Feedback:</p>
-                  <p className="text-gray-800">{evaluation.feedback}</p>
-                  {evaluation.feedback_score && (
-                    <p className="text-sm text-blue-600 mt-2">
-                      Corrected Score: {evaluation.feedback_score}/100
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {!evaluation.feedback && (
-                <div className="flex gap-4">
-                  <button
-                    onClick={() => openFeedbackModal(evaluation, true)}
-                    data-testid="correct-button"
-                    className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center"
-                  >
-                    <ThumbsUp className="mr-2" size={18} />
-                    Correct
-                  </button>
-                  <button
-                    onClick={() => openFeedbackModal(evaluation, false)}
-                    data-testid="incorrect-button"
-                    className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center"
-                  >
-                    <ThumbsDown className="mr-2" size={18} />
-                    Needs Correction
-                  </button>
-                </div>
-              )}
+              ))}
             </div>
           ))}
         </div>
