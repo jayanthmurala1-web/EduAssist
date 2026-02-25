@@ -289,49 +289,63 @@ async def evaluate_answer(answer_text: str, syllabus_content: str, questions_tex
         # === ADAPTIVE LEARNING: Fetch Teacher Feedback ===
         feedback_examples = ""
         try:
-            # Query for recent teacher feedback in this subject
+            # First try: Query for recent teacher feedback in this subject + topic
             feedback_query = {"subject": subject}
             if topic:
                 feedback_query["topic"] = topic
-                
-            # Fetch last 5 meaningful feedback logs (where there was a correction or confirmation)
-            past_logs = await db.feedback_logs.find(feedback_query).sort("timestamp", -1).limit(5).to_list(5)
+            
+            past_logs = await db.feedback_logs.find(feedback_query).sort("timestamp", -1).limit(8).to_list(8)
+            
+            # Fallback: If no topic-specific feedback, get subject-wide feedback
+            if not past_logs and topic:
+                logger.info(f"No topic feedback for '{topic}', falling back to subject '{subject}'")
+                past_logs = await db.feedback_logs.find({"subject": subject}).sort("timestamp", -1).limit(8).to_list(8)
             
             if past_logs:
-                feedback_examples = "\n\nADAPTIVE LEARNING: PREVIOUS TEACHER CORRECTIONS\n"
-                feedback_examples += "Follow the grading style and patterns shown in these previous teacher corrections:\n"
+                logger.info(f"Retrieved {len(past_logs)} feedback logs for subject '{subject}' and topic '{topic}'")
+                feedback_examples = "\nCRITICAL: FOLLOW THESE PREVIOUS TEACHER CORRECTIONS\n"
+                feedback_examples += "You have been inconsistent in the past. Below are examples of how the TEACHER wants you to grade. ADAPT YOUR SCORING IMMEDIATELY to match the 'Teacher Corrected Score' logic:\n"
                 for log in past_logs:
                     if log.get('answer_text') and log.get('feedback'):
-                        feedback_examples += f"--- Example ---\n"
-                        feedback_examples += f"Subject Answer: {log.get('answer_text')[:300]}...\n"
-                        feedback_examples += f"AI Previous Score: {log.get('ai_score')}\n"
-                        feedback_examples += f"Teacher Corrected Score: {log.get('teacher_score')}\n"
-                        feedback_examples += f"Teacher Reason/Feedback: {log.get('feedback')}\n"
-                feedback_examples += "------------------\n"
+                        # Truncate answer text to avoid context bloat but keep the core
+                        ans = log.get('answer_text', '')
+                        if len(ans) > 200: ans = ans[:200] + "..."
+                        
+                        feedback_examples += f"\n[PAST EXAMPLE]\n"
+                        feedback_examples += f"- STUDENT ANSWER SNIPPET: {ans}\n"
+                        feedback_examples += f"- YOUR PREVIOUS SCORE: {log.get('ai_score')}\n"
+                        feedback_examples += f"- TEACHER'S CORRECTED SCORE: {log.get('teacher_score')}\n"
+                        feedback_examples += f"- TEACHER'S REASONING: {log.get('feedback')}\n"
+                feedback_examples += "\nEND OF EXAMPLES. Now evaluate the current script using the EXACT same grading strictness/leniency as shown above.\n"
+            else:
+                logger.info(f"No existing feedback logs found for subject '{subject}' - topic '{topic}'")
         except Exception as e:
             logger.warning(f"Failed to fetch feedback logs: {e}")
 
-        system_message = f"""You are an expert educational evaluator. 
-        A student might have answered MULTIPLE questions in their script. 
-        Your task is to identify each question answered and provide a SEPARATE evaluation for each.
+        system_message = f"""You are an ELITE Educational Evaluator. 
+        
+        {feedback_examples}
 
-        You MUST respond ONLY with a valid JSON LIST of objects in this exact format:
+        TASK: 
+        1. Identify each discrete question answered in the provided script.
+        2. Provide a SEPARATE evaluation for each using the SYLLABUS as a reference.
+        3. Match the TEACHER'S GRADING STYLE provided in the examples above.
+
+        You MUST respond ONLY with a valid JSON LIST of objects:
         [
           {{
-            "question": "The text of the question being answered",
-            "score": <number between 0-100>,
-            "explanation": "<detailed explanation of the score>",
-            "missing_keywords": ["keyword1", "keyword2"],
-            "matched_concepts": ["concept1", "concept2"]
-          }},
-          ...
+            "question": "Full text of the question",
+            "score": <number 0-100>,
+            "explanation": "<detailed pedagogical feedback>",
+            "missing_keywords": ["kw1", "kw2"],
+            "matched_concepts": ["concept1"]
+          }}
         ]
 
-        If there is only one question, still return a LIST with one object.
-        Be fair, constructive, and specific in your evaluation. 
-        Use the provided questions and syllabus to inform your evaluation.{feedback_examples}
-        
-        IMPORTANT: Your grading sensitivity MUST align with the teacher's style shown in the examples above. If the teacher consistently gives higher or lower scores than the AI, adjust your future scoring to match their pattern."""
+        STRICT RULES:
+        - If teacher examples show they are more lenient than you, increase your scores.
+        - If teacher examples show they are stricter, decrease your scores.
+        - Respond ONLY with JSON. No conversational filler."""
         
         topic_info = f" on the topic '{topic}'" if topic else ""
         questions_section = f"\n\nOFFICIAL QUESTIONS (use these to identify what the student is answering):\n{questions_text}\n" if questions_text else ""
@@ -839,6 +853,7 @@ async def submit_feedback(feedback: FeedbackSubmit):
             "evaluation_id": feedback.evaluation_id,
             "student_name": evaluation.get('student_name'),
             "subject": evaluation.get('subject'),
+            "topic": evaluation.get('topic'), # Added topic
             "ai_score": ai_score,
             "teacher_score": teacher_score,
             "score_difference": error,
