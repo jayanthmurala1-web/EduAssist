@@ -263,13 +263,13 @@ const SubjectManagement = () => {
                       >
                         <Eye size={12} /> Info
                       </button>
-                      <button
+                      {/* <button
                         onClick={() => fetchFullDetails(syl.id, 'file_original')}
                         className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all flex items-center gap-1"
                         disabled={fetchingDetails}
                       >
                         <FileText size={12} /> View Doc
-                      </button>
+                      </button> */}
                       <button
                         onClick={() => fetchFullDetails(syl.id, 'questions')}
                         className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all flex items-center gap-1"

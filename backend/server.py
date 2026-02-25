@@ -13,6 +13,7 @@ import base64
 import asyncio
 from groq import AsyncGroq
 import PyPDF2
+import fitz # PyMuPDF
 import io
 from contextlib import asynccontextmanager
 
@@ -104,7 +105,8 @@ class AnswerScript(BaseModel):
     student_name: str
     subject: str
     topic: Optional[str] = None
-    image_data: Optional[str] = None
+    image_data: Optional[str] = None # First page for thumbnail
+    all_pages: List[str] = [] # All pages for full review
     ocr_text: str
     exam_date: Optional[str] = None # Date of the exam
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -130,6 +132,7 @@ class Evaluation(BaseModel):
     matched_concepts: List[str] = []
     similarity_score: float = 0.0  # RAG cosine similarity score
     retrieved_chunks: int = 0  # Number of chunks used for evaluation
+    student_script_image: Optional[str] = None # Full base64 of the student's answer script
     feedback: Optional[str] = None
     feedback_score: Optional[float] = None
     is_correct: Optional[bool] = None
@@ -179,16 +182,43 @@ async def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> Lis
     return chunks
 
 async def extract_text_from_pdf(file_content: bytes) -> str:
-    """Extract text from PDF file"""
+    """Extract text from PDF with OCR fallback for scanned pages"""
     try:
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-        return text.strip()
+        # Use fitz (PyMuPDF) as it handles various PDF types better
+        doc = fitz.open(stream=file_content, filetype="pdf")
+        full_text = ""
+        
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text()
+            
+            # If text is very short, it's likely a scanned image page
+            if len(text.strip()) < 50:
+                logger.info(f"Page {page_num + 1} looks scanned, running OCR...")
+                # Convert page to image
+                pix = page.get_pixmap(matrix=fitz.Matrix(3, 3)) # Higher scale (3x) for much better OCR
+                img_bytes = pix.tobytes("png")
+                img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+                
+                # Use our existing OCR function
+                ocr_text = await ocr_image(img_b64, skip_cleanup=True)
+                text = ocr_text + "\n"
+            
+            full_text += text + "\n"
+            
+        doc.close()
+        return full_text.strip()
     except Exception as e:
         logger.error(f"Error extracting PDF text: {e}")
-        raise HTTPException(status_code=400, detail="Failed to parse PDF file")
+        # Fallback to PyPDF2 if fitz fails
+        try:
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+            text = ""
+            for page in pdf_reader.pages:
+                text += page.extract_text() + "\n"
+            return text.strip()
+        except:
+            raise HTTPException(status_code=400, detail="Failed to parse PDF file")
 
 async def extract_text_from_txt(file_content: bytes) -> str:
     """Extract text from TXT file"""
@@ -219,8 +249,32 @@ async def get_embeddings(text: str) -> List[float]:
         logger.error(f"Error getting embeddings: {e}")
         return [0.0] * 256
 
-async def ocr_image(image_base64: str) -> str:
-    """Extract text from image using Tesseract OCR (local, free) + Groq cleanup"""
+async def perform_llm_cleanup(raw_text: str) -> str:
+    """Helper to perform coherent Groq cleanup on text blocks"""
+    try:
+        client = AsyncGroq(api_key=GROQ_API_KEY)
+        response = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a professional OCR correction bot. You receive raw OCR output from a handwritten student answer script that might span multiple pages. Clean it up by fixing obvious transcription errors, correcting spelling, and making it readable while preserving the exact semantic meaning. If you see PAGE markers, use them to maintain context but remove them from the final output. Return ONLY the final cleaned text."
+                },
+                {
+                    "role": "user",
+                    "content": f"Clean up this multi-page handwritten transcription:\n\n{raw_text}"
+                }
+            ],
+            max_tokens=8192,
+            temperature=0.1
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning(f"Coherent cleanup failed: {e}")
+        return raw_text
+
+async def ocr_image(image_base64: str, skip_cleanup: bool = False) -> str:
+    """Extract text from image using Tesseract OCR (local, free) + Optional Groq cleanup"""
     try:
         import pytesseract
         from PIL import Image, ImageFilter, ImageEnhance
@@ -259,6 +313,9 @@ async def ocr_image(image_base64: str) -> str:
         if not raw_text:
             raise HTTPException(status_code=400, detail="Could not extract any text from the image. Please upload a clearer image.")
         
+        if skip_cleanup:
+            return raw_text
+
         # 4. Use Groq to clean up and improve the OCR text
         try:
             client = AsyncGroq(api_key=GROQ_API_KEY)
@@ -715,30 +772,37 @@ async def process_ocr(file: UploadFile = File(...)):
             total_text_parts = []
             preview_base64 = ""
             
+            all_page_images = []
             for i, page in enumerate(doc):
-                # Convert page to image (rendering at 200 DPI for better OCR)
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                # Convert page to image (rendering at 3x for higher precision OCR)
+                pix = page.get_pixmap(matrix=fitz.Matrix(3, 3))
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 
-                # Convert PIL image to base64 for ocr_image function
+                # Convert PIL image to base64
                 buffered = io.BytesIO()
                 img.save(buffered, format="PNG")
                 page_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
                 
+                all_page_images.append(page_base64)
                 if i == 0:
                     preview_base64 = page_base64
                 
-                # Extract text using existing ocr_image logic (includes preprocessing and Groq cleanup)
-                page_text = await ocr_image(page_base64)
-                total_text_parts.append(page_text)
+                # Extract RAW text only (no cleanup yet to preserve multi-page context)
+                page_raw_text = await ocr_image(page_base64, skip_cleanup=True)
+                total_text_parts.append(f"--- PAGE {i+1} ---\n{page_raw_text}")
             
             doc.close()
-            combined_text = "\n\n".join(total_text_parts)
+            full_raw_text = "\n\n".join(total_text_parts)
+            
+            # Perform a SINGLE coherent cleanup for the entire document
+            logger.info("Performing coherent LLM cleanup for multi-page document...")
+            combined_text = await perform_llm_cleanup(full_raw_text)
             
             return {
                 "success": True,
                 "ocr_text": combined_text,
-                "image_base64": preview_base64 or base64.b64encode(contents).decode('utf-8') # Fallback to original bytes
+                "image_base64": preview_base64,
+                "all_pages": all_page_images
             }
         
         # Original image processing logic
@@ -800,7 +864,8 @@ async def evaluate_answer_script(answer_data: dict):
             student_name=student_name,
             subject=subject,
             topic=topic,
-            image_data=image_base64[:100] if image_base64 else None,
+            image_data=image_base64, # Thumbnail
+            all_pages=answer_data.get('all_pages', [image_base64] if image_base64 else []), # Store all pages
             ocr_text=ocr_text,
             exam_date=exam_date
         )
@@ -841,7 +906,8 @@ async def evaluate_answer_script(answer_data: dict):
                 missing_keywords=res.get('missing_keywords', []),
                 matched_concepts=res.get('matched_concepts', []),
                 similarity_score=rag_result['similarity_score'],
-                retrieved_chunks=rag_result['num_chunks_used']
+                retrieved_chunks=rag_result['num_chunks_used'],
+                student_script_image=image_base64 # Added for review preview
             )
             
             # Store evaluation
@@ -864,11 +930,11 @@ async def evaluate_answer_script(answer_data: dict):
 async def get_evaluations():
     """Get all evaluations (optimized with pagination)"""
     try:
-        # Fetch only needed fields
+        # Fetch only needed fields (EXCLUDE large images for list performance)
         evaluations = await db.evaluations.find(
             {}, 
-            {"_id": 0}
-        ).limit(1000).to_list(1000)
+            {"_id": 0, "student_script_image": 0} 
+        ).sort("created_at", -1).limit(1000).to_list(1000)
         
         for eval in evaluations:
             if isinstance(eval['created_at'], str):
@@ -879,6 +945,24 @@ async def get_evaluations():
         return evaluations
     except Exception as e:
         logger.error(f"Error fetching evaluations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/evaluations/{evaluation_id}/full")
+async def get_evaluation_full(evaluation_id: str):
+    """Get full evaluation details including ALL script pages"""
+    try:
+        evaluation = await db.evaluations.find_one({"id": evaluation_id}, {"_id": 0})
+        if not evaluation:
+            raise HTTPException(status_code=404, detail="Evaluation not found")
+        
+        # Join with AnswerScript to get all pages
+        script = await db.answer_scripts.find_one({"id": evaluation['answer_script_id']}, {"_id": 0, "all_pages": 1})
+        if script:
+            evaluation['all_pages'] = script.get('all_pages', [])
+        
+        return evaluation
+    except Exception as e:
+        logger.error(f"Error fetching full evaluation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/feedback")

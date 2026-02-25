@@ -34,6 +34,7 @@ const AnswerSubmission = () => {
   const [imagePreview, setImagePreview] = useState(null);
   const [ocrText, setOcrText] = useState('');
   const [imageBase64, setImageBase64] = useState('');
+  const [allPages, setAllPages] = useState([]); // Store all pages for multi-page PDFs
   const [loading, setLoading] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -203,6 +204,7 @@ const AnswerSubmission = () => {
 
       setOcrText(response.data.ocr_text);
       setImageBase64(response.data.image_base64);
+      setAllPages(response.data.all_pages || []);
     } catch (err) {
       setError(err.response?.data?.detail || 'OCR failed');
     } finally {
@@ -238,6 +240,7 @@ const AnswerSubmission = () => {
         topic: formData.topic || null,
         ocr_text: ocrText,
         image_base64: imageBase64,
+        all_pages: allPages,
         exam_date: formData.exam_date,
       }, {
         headers: getAuthHeaders(),
