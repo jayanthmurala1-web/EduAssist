@@ -74,6 +74,13 @@ class SyllabusCreate(BaseModel):
     subject: str
     topic: Optional[str] = None
 
+class SyllabusUpdate(BaseModel):
+    title: Optional[str] = None
+    subject: Optional[str] = None
+    topic: Optional[str] = None
+    content: Optional[str] = None
+    questions_text: Optional[str] = None
+
 class Syllabus(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -85,6 +92,7 @@ class Syllabus(BaseModel):
     embeddings: List[List[float]] = []
     question_paper: Optional[str] = None  # Base64 encoded image
     questions_text: Optional[str] = None  # Extracted/uploaded questions
+    original_file_b64: Optional[str] = None # Base64 of the original syllabus file (if PDF/Image)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AnswerScript(BaseModel):
@@ -307,16 +315,17 @@ async def evaluate_answer(answer_text: str, syllabus_content: str, questions_tex
                 feedback_examples += "You have been inconsistent in the past. Below are examples of how the TEACHER wants you to grade. ADAPT YOUR SCORING IMMEDIATELY to match the 'Teacher Corrected Score' logic:\n"
                 for log in past_logs:
                     if log.get('answer_text') and log.get('feedback'):
-                        # Truncate answer text to avoid context bloat but keep the core
+                        # Keep it concise but include the question
                         ans = log.get('answer_text', '')
                         if len(ans) > 200: ans = ans[:200] + "..."
                         
-                        feedback_examples += f"\n[PAST EXAMPLE]\n"
+                        feedback_examples += f"\n[PAST CORRECTION]\n"
+                        feedback_examples += f"- FOR QUESTION: {log.get('question')}\n"
                         feedback_examples += f"- STUDENT ANSWER SNIPPET: {ans}\n"
-                        feedback_examples += f"- YOUR PREVIOUS SCORE: {log.get('ai_score')}\n"
-                        feedback_examples += f"- TEACHER'S CORRECTED SCORE: {log.get('teacher_score')}\n"
-                        feedback_examples += f"- TEACHER'S REASONING: {log.get('feedback')}\n"
-                feedback_examples += "\nEND OF EXAMPLES. Now evaluate the current script using the EXACT same grading strictness/leniency as shown above.\n"
+                        feedback_examples += f"- YOUR WRONG SCORE: {log.get('ai_score')}\n"
+                        feedback_examples += f"- TEACHER'S CORRECT SCORE: {log.get('teacher_score')}\n"
+                        feedback_examples += f"- TEACHER'S RULE: {log.get('feedback')}\n"
+                feedback_examples += "\nURGENT: If the current evaluation contains similar questions or answers, APPLY THE TEACHER'S RULE ABOVE. Do not repeat your previous scoring mistakes.\n"
             else:
                 logger.info(f"No existing feedback logs found for subject '{subject}' - topic '{topic}'")
         except Exception as e:
@@ -519,6 +528,7 @@ async def upload_syllabus_file(
     """Upload syllabus from file (PDF/TXT) and optionally question paper image"""
     try:
         content = ""
+        syllabus_file_base64 = None
         question_paper_base64 = None
         questions_text = None
         
@@ -529,8 +539,10 @@ async def upload_syllabus_file(
             
             if filename.endswith('.pdf'):
                 content = await extract_text_from_pdf(file_content)
+                syllabus_file_base64 = base64.b64encode(file_content).decode('utf-8')
             elif filename.endswith('.txt'):
                 content = await extract_text_from_txt(file_content)
+                syllabus_file_base64 = base64.b64encode(file_content).decode('utf-8')
             else:
                 raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported for syllabus")
         
@@ -562,7 +574,8 @@ async def upload_syllabus_file(
             chunks=chunks,
             embeddings=embeddings,
             question_paper=question_paper_base64,
-            questions_text=questions_text
+            questions_text=questions_text,
+            original_file_b64=syllabus_file_base64
         )
         
         # Store in MongoDB
@@ -591,7 +604,7 @@ async def get_all_syllabus():
         # Exclude large fields for list view
         syllabus_list = await db.syllabus.find(
             {}, 
-            {"_id": 0, "embeddings": 0, "chunks": 0, "question_paper": 0}
+            {"_id": 0, "embeddings": 0, "chunks": 0, "question_paper": 0, "original_file_b64": 0}
         ).limit(1000).to_list(1000)
         
         for item in syllabus_list:
@@ -606,6 +619,47 @@ async def get_all_syllabus():
         return syllabus_list
     except Exception as e:
         logger.error(f"Error fetching syllabus: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+@api_router.get("/syllabus/{syllabus_id}", response_model=Syllabus)
+async def get_syllabus_by_id(syllabus_id: str):
+    """Get a specific syllabus entry by ID (includes question paper and original file)"""
+    try:
+        item = await db.syllabus.find_one({"id": syllabus_id}, {"_id": 0, "embeddings": 0})
+        if not item:
+            raise HTTPException(status_code=404, detail="Syllabus not found")
+        
+        if isinstance(item['created_at'], str):
+            item['created_at'] = datetime.fromisoformat(item['created_at'])
+            
+        return item
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching syllabus {syllabus_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.put("/syllabus/{syllabus_id}")
+async def update_syllabus(syllabus_id: str, update_data: SyllabusUpdate):
+    """Update a syllabus entry"""
+    try:
+        data = {k: v for k, v in update_data.model_dump().items() if v is not None}
+        if not data:
+            raise HTTPException(status_code=400, detail="No data provided to update")
+            
+        result = await db.syllabus.update_one(
+            {"id": syllabus_id},
+            {"$set": data}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Syllabus not found")
+            
+        logger.info(f"Syllabus updated: {syllabus_id}")
+        return {"success": True, "message": "Syllabus updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating syllabus: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.delete("/syllabus/{syllabus_id}")
@@ -709,22 +763,34 @@ async def evaluate_answer_script(answer_data: dict):
         class_id = answer_data.get('class_id')
         section_id = answer_data.get('section_id')
         subject = answer_data.get('subject')
-        topic = answer_data.get('topic')
+        topic = answer_data.get('topic') or 'General' # Normalize empty topic
         ocr_text = answer_data.get('ocr_text')
         image_base64 = answer_data.get('image_base64')
         exam_date = answer_data.get('exam_date')
         class_name = answer_data.get('class_name')
         section_name = answer_data.get('section_name')
         
-        # Find relevant syllabus
+        # Find relevant syllabus - Smart Lookup
+        # 1. Try exact subject + topic
         query = {"subject": subject}
-        if topic:
+        if topic and topic != 'General':
             query["topic"] = topic
-        
-        syllabus = await db.syllabus.find_one(query, {"_id": 0})
+            syllabus = await db.syllabus.find_one(query, {"_id": 0})
+        else:
+            syllabus = None
+
+        # 2. Fallback: Try just subject (gets the first available syllabus/notes for this subject)
+        if not syllabus:
+            logger.info(f"Syllabus for {subject} with topic {topic} not found, falling back to subject-only search")
+            syllabus = await db.syllabus.find_one({"subject": subject}, {"_id": 0})
         
         if not syllabus:
-            raise HTTPException(status_code=404, detail=f"No syllabus found for subject: {subject}")
+            # Final check: Maybe a case-insensitive match for the subject?
+            logger.info(f"Syllabus for {subject} still not found, trying case-insensitive match")
+            syllabus = await db.syllabus.find_one({"subject": {"$regex": f"^{subject}$", "$options": "i"}}, {"_id": 0})
+
+        if not syllabus:
+            raise HTTPException(status_code=404, detail=f"No syllabus found for subject: {subject}. Please ensure the subject name matches exactly what you uploaded in 'Manage Subjects'.")
         
         # Store answer script
         answer_script = AnswerScript(
@@ -853,7 +919,8 @@ async def submit_feedback(feedback: FeedbackSubmit):
             "evaluation_id": feedback.evaluation_id,
             "student_name": evaluation.get('student_name'),
             "subject": evaluation.get('subject'),
-            "topic": evaluation.get('topic'), # Added topic
+            "topic": evaluation.get('topic') or 'General', # Normalize topic
+            "question": evaluation.get('question'), # Added specific question
             "ai_score": ai_score,
             "teacher_score": teacher_score,
             "score_difference": error,
