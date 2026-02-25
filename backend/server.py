@@ -114,6 +114,7 @@ class Evaluation(BaseModel):
     class_name: Optional[str] = None # Name of class
     section_id: Optional[str] = None  # Link to section
     section_name: Optional[str] = None # Name of section
+    answer_text: Optional[str] = None # The student's actual answer text for context
     score: float
     max_score: float = 100.0
     explanation: str
@@ -281,29 +282,56 @@ async def ocr_image(image_base64: str) -> str:
         raise HTTPException(status_code=500, detail=f"OCR failed: {str(e)}")
 
 async def evaluate_answer(answer_text: str, syllabus_content: str, questions_text: Optional[str], subject: str, topic: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Evaluate answer using Groq (Llama 3.3 70B) with multi-question detection"""
+    """Evaluate answer using Groq (Llama 3.3 70B) with multi-question detection and adaptive learning"""
     try:
         client = AsyncGroq(api_key=GROQ_API_KEY)
         
-        system_message = """You are an expert educational evaluator. 
+        # === ADAPTIVE LEARNING: Fetch Teacher Feedback ===
+        feedback_examples = ""
+        try:
+            # Query for recent teacher feedback in this subject
+            feedback_query = {"subject": subject}
+            if topic:
+                feedback_query["topic"] = topic
+                
+            # Fetch last 5 meaningful feedback logs (where there was a correction or confirmation)
+            past_logs = await db.feedback_logs.find(feedback_query).sort("timestamp", -1).limit(5).to_list(5)
+            
+            if past_logs:
+                feedback_examples = "\n\nADAPTIVE LEARNING: PREVIOUS TEACHER CORRECTIONS\n"
+                feedback_examples += "Follow the grading style and patterns shown in these previous teacher corrections:\n"
+                for log in past_logs:
+                    if log.get('answer_text') and log.get('feedback'):
+                        feedback_examples += f"--- Example ---\n"
+                        feedback_examples += f"Subject Answer: {log.get('answer_text')[:300]}...\n"
+                        feedback_examples += f"AI Previous Score: {log.get('ai_score')}\n"
+                        feedback_examples += f"Teacher Corrected Score: {log.get('teacher_score')}\n"
+                        feedback_examples += f"Teacher Reason/Feedback: {log.get('feedback')}\n"
+                feedback_examples += "------------------\n"
+        except Exception as e:
+            logger.warning(f"Failed to fetch feedback logs: {e}")
+
+        system_message = f"""You are an expert educational evaluator. 
         A student might have answered MULTIPLE questions in their script. 
         Your task is to identify each question answered and provide a SEPARATE evaluation for each.
 
         You MUST respond ONLY with a valid JSON LIST of objects in this exact format:
         [
-          {
+          {{
             "question": "The text of the question being answered",
             "score": <number between 0-100>,
             "explanation": "<detailed explanation of the score>",
             "missing_keywords": ["keyword1", "keyword2"],
             "matched_concepts": ["concept1", "concept2"]
-          },
+          }},
           ...
         ]
 
         If there is only one question, still return a LIST with one object.
         Be fair, constructive, and specific in your evaluation. 
-        Use the provided questions and syllabus to inform your evaluation."""
+        Use the provided questions and syllabus to inform your evaluation.{feedback_examples}
+        
+        IMPORTANT: Your grading sensitivity MUST align with the teacher's style shown in the examples above. If the teacher consistently gives higher or lower scores than the AI, adjust your future scoring to match their pattern."""
         
         topic_info = f" on the topic '{topic}'" if topic else ""
         questions_section = f"\n\nOFFICIAL QUESTIONS (use these to identify what the student is answering):\n{questions_text}\n" if questions_text else ""
@@ -729,6 +757,7 @@ async def evaluate_answer_script(answer_data: dict):
                 exam_date=exam_date,
                 class_name=class_name,
                 section_name=section_name,
+                answer_text=ocr_text,
                 missing_keywords=res.get('missing_keywords', []),
                 matched_concepts=res.get('matched_concepts', []),
                 similarity_score=rag_result['similarity_score'],
@@ -817,6 +846,7 @@ async def submit_feedback(feedback: FeedbackSubmit):
             "feedback": feedback.feedback,
             "concept_feedback": feedback.concept_feedback,
             "is_correct": feedback.is_correct,
+            "answer_text": evaluation.get('answer_text'),
             "matched_concepts": evaluation.get('matched_concepts', []),
             "missing_keywords": evaluation.get('missing_keywords', []),
             "timestamp": datetime.now(timezone.utc).isoformat()
