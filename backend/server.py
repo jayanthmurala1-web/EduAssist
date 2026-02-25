@@ -812,7 +812,8 @@ async def process_ocr(file: UploadFile = File(...)):
         return {
             "success": True,
             "ocr_text": ocr_text,
-            "image_base64": image_base64
+            "image_base64": image_base64,
+            "all_pages": [image_base64] # Consistent return for single images
         }
     except Exception as e:
         logger.error(f"Error in OCR processing: {e}")
@@ -856,6 +857,11 @@ async def evaluate_answer_script(answer_data: dict):
         if not syllabus:
             raise HTTPException(status_code=404, detail=f"No syllabus found for subject: {subject}. Please ensure the subject name matches exactly what you uploaded in 'Manage Subjects'.")
         
+        # Ensure all_pages is at least the primary image if it was sent empty
+        all_pages = answer_data.get('all_pages')
+        if not all_pages or len(all_pages) == 0:
+            all_pages = [image_base64] if image_base64 else []
+
         # Store answer script
         answer_script = AnswerScript(
             student_id=student_id,
@@ -865,7 +871,7 @@ async def evaluate_answer_script(answer_data: dict):
             subject=subject,
             topic=topic,
             image_data=image_base64, # Thumbnail
-            all_pages=answer_data.get('all_pages', [image_base64] if image_base64 else []), # Store all pages
+            all_pages=all_pages, # Store all pages
             ocr_text=ocr_text,
             exam_date=exam_date
         )
@@ -913,7 +919,8 @@ async def evaluate_answer_script(answer_data: dict):
             # Store evaluation
             eval_doc = evaluation.model_dump()
             eval_doc['created_at'] = eval_doc['created_at'].isoformat()
-            eval_doc['updated_at'] = eval_doc['updated_at'].isoformat()
+            if 'updated_at' in eval_doc and eval_doc['updated_at']:
+                eval_doc['updated_at'] = eval_doc['updated_at'].isoformat()
             eval_doc['rag_chunk_scores'] = rag_result.get('chunk_scores', [])
             await db.evaluations.insert_one(eval_doc)
             saved_evaluations.append(evaluation)
@@ -957,8 +964,14 @@ async def get_evaluation_full(evaluation_id: str):
         
         # Join with AnswerScript to get all pages
         script = await db.answer_scripts.find_one({"id": evaluation['answer_script_id']}, {"_id": 0, "all_pages": 1})
-        if script:
-            evaluation['all_pages'] = script.get('all_pages', [])
+        
+        # Fallback logic for all_pages
+        if script and script.get('all_pages'):
+            evaluation['all_pages'] = script['all_pages']
+        else:
+            # Last resort fallback to the single image stored on evaluation
+            image_fallback = evaluation.get('student_script_image')
+            evaluation['all_pages'] = [image_fallback] if image_fallback else []
         
         return evaluation
     except Exception as e:
